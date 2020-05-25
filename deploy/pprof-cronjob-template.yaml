@@ -1,0 +1,78 @@
+---
+apiVersion: v1
+kind: Template
+metadata:
+  name: rhmi-operator-pprof-heap
+  annotations:
+    description: 'Cronjob for fetching pprof heap snapshots'
+objects:
+  - apiVersion: batch/v1beta1
+    kind: CronJob
+    metadata:
+      name: ${NAME}
+    spec:
+      schedule: ${CRON_SCHEDULE}
+      concurrencyPolicy: Forbid
+      jobTemplate:
+        spec:
+          backoffLimit: 1
+          template:
+            metadata:
+              name: ${NAME}
+              labels:
+                cronjob-name: ${NAME}
+            spec:
+              restartPolicy: Never
+              containers:
+                - name: ${NAME}
+                  image: "${IMAGE}"
+                  imagePullPolicy: IfNotPresent
+                  restartPolicy: Never
+                  command: 
+                    - "/bin/bash"
+                  args:
+                    - "-x"
+                    - "-e"
+                    - "-c"
+                    - >
+                      curl -s ${SERVICE_NAME}.$NAMESPACE.svc:${SERVICE_PORT}/debug/pprof/heap > /tmp/$(date -u '+%Y-%m-%d_%H:%M:%S').pprof && ls /tmp && s3cmd put --access_key ${AWS_ACCESS_KEY_ID} --secret_key ${AWS_SECRET_ACCESS_KEY} --progress /tmp/*.pprof "s3://$AWS_BUCKET/$AWS_BUCKET_FOLDER/"
+                  env:
+                    - name: AWS_ACCESS_KEY_ID
+                      value: "${AWS_ACCESS_KEY_ID}"
+                    - name: AWS_SECRET_ACCESS_KEY
+                      value: "${AWS_SECRET_ACCESS_KEY}"
+                    - name: AWS_BUCKET
+                      value: "${AWS_BUCKET}"
+                    - name: AWS_BUCKET_FOLDER
+                      value: "${AWS_BUCKET_FOLDER}"
+                    - name: SERVICE_NAME
+                      value: "${SERVICE_NAME}"
+                    - name: SERVICE_PORT
+                      value: "${SERVICE_PORT}"
+                    - name: NAMESPACE
+                      valueFrom:
+                        fieldRef:
+                          apiVersion: v1
+                          fieldPath: metadata.namespace
+parameters:
+  - name: NAME
+    value: rhmi-operator-pprof-heap
+  - name: AWS_BUCKET_FOLDER
+    value: pprof-heap
+  - name: SERVICE_NAME
+    value: rhmi-operator-pprof
+  - name: SERVICE_PORT
+    value: "6060"
+  - name: CRON_SCHEDULE
+    description: 'Job schedule in Cron Format [Default is to trigger a job every minute]'
+    value: '* * * * *'
+  - name: IMAGE
+    description: 'Backup docker image URL'
+    value: 'quay.io/integreatly/backup-container:master'
+# Required parameters
+  - name: AWS_ACCESS_KEY_ID
+    required: true
+  - name: AWS_SECRET_ACCESS_KEY
+    required: true
+  - name: AWS_BUCKET
+    required: true

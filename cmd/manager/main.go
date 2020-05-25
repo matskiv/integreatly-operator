@@ -4,6 +4,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"runtime"
 
@@ -170,6 +172,14 @@ func main() {
 	// Start up the wehook server
 	if err := setupWebhooks(mgr); err != nil {
 		log.Error(err, "Error setting up webhook server")
+	}
+
+	// Setup profiling http server
+	pprofPort := os.Getenv("PPROF_PORT")
+	if pprofPort != "" {
+		go func() {
+			fmt.Println(http.ListenAndServe("0.0.0.0:"+pprofPort, nil))
+		}()
 	}
 
 	log.Info("Starting the Cmd.")

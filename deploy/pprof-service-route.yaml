@@ -1,0 +1,27 @@
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: rhmi-operator-pprof
+spec:
+  selector:
+    name: rhmi-operator
+  ports:
+    - name: pprof
+      protocol: TCP
+      port: 6060
+      targetPort: 6060
+
+---
+kind: Route
+apiVersion: route.openshift.io/v1
+metadata:
+  name: rhmi-operator-pprof
+spec:
+  to:
+    kind: Service
+    name: rhmi-operator-pprof
+    weight: 100
+  port:
+    targetPort: pprof
+  wildcardPolicy: None
