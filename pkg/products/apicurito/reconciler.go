@@ -149,18 +149,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, installation *integreatlyv1a
 		return phase, err
 	}
 
-	err = resources.CopyPullSecretToNameSpace(ctx, installation.GetPullSecretSpec(), productNamespace, defaultApicuritoPullSecret, serverClient)
-	if err != nil {
-		events.HandleError(r.recorder, installation, phase, fmt.Sprintf("Failed to reconcile %s pull secret", defaultApicuritoPullSecret), err)
-		return integreatlyv1alpha1.PhaseFailed, err
-	}
-
-	err = resources.CopyPullSecretToNameSpace(ctx, installation.GetPullSecretSpec(), operatorNamespace, defaultApicuritoPullSecret, serverClient)
-	if err != nil {
-		events.HandleError(r.recorder, installation, phase, fmt.Sprintf("Failed to reconcile %s pull secret", defaultApicuritoPullSecret), err)
-		return integreatlyv1alpha1.PhaseFailed, err
-	}
-
 	phase, err = r.reconcileSubscription(ctx, serverClient, installation, productNamespace, operatorNamespace)
 	if err != nil || phase != integreatlyv1alpha1.PhaseCompleted {
 		events.HandleError(r.recorder, installation, phase, fmt.Sprintf("Failed to reconcile %s subscription", constants.ApicuritoSubscriptionName), err)
