@@ -74,6 +74,29 @@ if $DISABLE; then
     rm NetworkAclId.tmp
   fi
 
+  # get a subnet used for nodes in a specific AZ
+  SUBNETID=$(aws ec2 describe-subnets --region ${AZ%?} --filters "Name=tag:Name,Values=*-public-${AZ}" --query="Subnets[].SubnetId" --output text)
+  # Disable the AZ in each "classic" load balancer
+  # Can be verified with: aws elb describe-load-balancers --region ${AZ%?} --query="LoadBalancerDescriptions[].AvailabilityZones"
+  echo "Detaching ${SUBNETID} subnet from load balancers"
+  for ELBID in $(aws elb describe-load-balancers --region ${AZ%?} --query="LoadBalancerDescriptions[].[LoadBalancerName]" --output text)
+  do
+    aws elb detach-load-balancer-from-subnets --region ${AZ%?} --load-balancer-name ${ELBID} --subnets ${SUBNETID}
+  done
+
+  # get a list of master node IPs in the $AZ
+  MASTERS_IPS=$(aws ec2 describe-instances --region ${AZ%?} --filters "Name=availability-zone,Values=${AZ}" "Name=iam-instance-profile.arn,Values=*-master-profile" --query "Reservations[].Instances[].[PrivateIpAddress]" --output=text)
+  # remove IPs from TargetGroups(these are used for the "network" load balancers"
+  # can be verified with: aws elbv2 describe-target-groups --region ${AZ%?} --query "TargetGroups[].[TargetGroupArn]" --output text | xargs -L 1 aws elbv2 describe-target-health --query="TargetHealthDescriptions[].Target.AvailabilityZone" --target-group-arn
+  for TGARN in $(aws elbv2 describe-target-groups --region ${AZ%?} --query "TargetGroups[].[TargetGroupArn]" --output text)
+  do
+    aws elbv2 modify-target-group-attributes --region ${AZ%?} --target-group-arn ${TGARN} --attributes Key=deregistration_delay.timeout_seconds,Value=0
+    for MASTER_IP in ${MASTERS_IPS}
+    do
+      aws elbv2 deregister-targets --region ${AZ%?} --target-group-arn ${TGARN} --targets "Id=${MASTER_IP}"
+    done
+  done
+
   # use the subnetId to get the NetworkAclAssociationId to create the new acl association and get the NetworkAclId so can revert the change
   for SUBNETID in $(aws ec2 describe-subnets --region ${AZ%?}| jq ".Subnets[] | select(.AvailabilityZone==\"$AZ\")"  | jq -r '.SubnetId')
   do
@@ -104,6 +127,25 @@ else
   cat NetworkAclId.tmp | while read deleteNetworkAclId
   do
     aws ec2 delete-network-acl --network-acl-id $deleteNetworkAclId --region ${AZ%?}
+  done
+
+  # get a subnet used for nodes in a specific AZ
+  SUBNETID=$(aws ec2 describe-subnets --region ${AZ%?} --filters "Name=tag:Name,Values=*-public-${AZ}" --query="Subnets[].SubnetId" --output text)
+  echo "Attaching ${SUBNETID} subnet from load balancers"
+  for ELBID in $(aws elb describe-load-balancers --region ${AZ%?} --query="LoadBalancerDescriptions[].[LoadBalancerName]" --output text)
+  do
+    aws elb attach-load-balancer-to-subnets --region ${AZ%?} --load-balancer-name ${ELBID} --subnets ${SUBNETID}
+  done
+
+  MASTERS_IPS=$(aws ec2 describe-instances --region ${AZ%?} --filters "Name=availability-zone,Values=${AZ}" "Name=iam-instance-profile.arn,Values=*-master-profile" --query "Reservations[].Instances[].[PrivateIpAddress]" --output=text)
+  for TGARN in $(aws elbv2 describe-target-groups --region ${AZ%?} --query "TargetGroups[].[TargetGroupArn]" --output text)
+  do
+    aws elbv2 modify-target-group-attributes --region ${AZ%?} --target-group-arn ${TGARN} --attributes --attributes Key=deregistration_delay.timeout_seconds,Value=300
+    for MASTER_IP in ${MASTERS_IPS}
+    do
+      echo "Removing ${MASTER_IP} IP from ${TGARN} target group"
+      aws elbv2 register-targets --region ${AZ%?} --target-group-arn ${TGARN} --targets "Id=${MASTER_IP}"
+    done
   done
 
   # remove the tmp files
