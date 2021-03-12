@@ -12,6 +12,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	k8sresource "k8s.io/apimachinery/pkg/api/resource"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -249,6 +250,14 @@ func (r *RateLimitServiceReconciler) reconcileDeployment(ctx context.Context, cl
 							},
 						},
 						Env: envs,
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    k8sresource.MustParse("100m"),
+								corev1.ResourceMemory: k8sresource.MustParse("50Mi")},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    k8sresource.MustParse("200m"),
+								corev1.ResourceMemory: k8sresource.MustParse("50Mi")},
+						},
 					},
 				},
 				PriorityClassName: r.Installation.Spec.PriorityClassName,
