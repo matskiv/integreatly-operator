@@ -21,10 +21,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/go-openapi/strfmt"
-	routev1 "github.com/openshift/api/route/v1"
-	appsv1Client "github.com/openshift/client-go/apps/clientset/versioned/typed/apps/v1"
-	"github.com/prometheus/alertmanager/api/v2/models"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -32,6 +28,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/go-openapi/strfmt"
+	routev1 "github.com/openshift/api/route/v1"
+	appsv1Client "github.com/openshift/client-go/apps/clientset/versioned/typed/apps/v1"
+	"github.com/prometheus/alertmanager/api/v2/models"
 
 	"github.com/integr8ly/integreatly-operator/pkg/resources/events"
 	"github.com/integr8ly/integreatly-operator/pkg/resources/quota"
@@ -1369,7 +1370,7 @@ func (r *RHMIReconciler) processQuota(installation *rhmiv1alpha1.RHMI, namespace
 	isQuotaUpdated := false
 	quotaParam, found, err := addon.GetStringParameterByInstallType(context.TODO(), r.Client, rhmiv1alpha1.InstallationTypeManagedApi, namespace, addon.QuotaParamName)
 	if err != nil {
-		return fmt.Errorf("error checking for quota secret %w", err)
+		return fmt.Errorf("error checking for addon parameters secret %w", err)
 	}
 
 	// if !found or the param is found but empty and installation is less than one minute old, return an error
@@ -1379,15 +1380,23 @@ func (r *RHMIReconciler) processQuota(installation *rhmiv1alpha1.RHMI, namespace
 	}
 
 	// if the param is not found after the installation is 1 minute old it means that it wasn't provided to the installation
-	// in this case check for an Environment Variable QUOTA
+	// in this case check for the trial-quota parameter, and use it instead of quota if it is found
+	// if trial-quota is not found then check for an Environment Variable QUOTA
 	// if neither are found then return an error as there is no QUOTA value for the installation to use and it's required by the reconcilers.
 	if (!found || quotaParam == "") && isInstallationOlderThan1Minute(installation) {
-		log.Info(fmt.Sprintf("no secret param found after one minute so falling back to env var '%s' for sku value", rhmiv1alpha1.EnvKeyQuota))
-		quotaValue, exists := os.LookupEnv(rhmiv1alpha1.EnvKeyQuota)
-		if !exists || quotaValue == "" {
-			return fmt.Errorf("no quota value provided by add on parameter '%s' or by env var '%s'", addon.QuotaParamName, rhmiv1alpha1.EnvKeyQuota)
+
+		quotaParam, found, err = addon.GetStringParameterByInstallType(context.TODO(), r.Client, rhmiv1alpha1.InstallationTypeManagedApi, namespace, addon.TrialQuotaParamName)
+		if err != nil {
+			return fmt.Errorf("error checking for quota secret %w", err)
 		}
-		quotaParam = quotaValue
+		if !found {
+			log.Info(fmt.Sprintf("no secret param found after one minute so falling back to env var '%s' for sku value", rhmiv1alpha1.EnvKeyQuota))
+			quotaValue, exists := os.LookupEnv(rhmiv1alpha1.EnvKeyQuota)
+			if !exists || quotaValue == "" {
+				return fmt.Errorf("no quota value provided by add on parameter '%s' or by env var '%s'", addon.QuotaParamName, rhmiv1alpha1.EnvKeyQuota)
+			}
+			quotaParam = quotaValue
+		}
 	}
 
 	// get the quota config map from the cluster
